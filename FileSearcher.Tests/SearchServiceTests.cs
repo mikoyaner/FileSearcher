@@ -94,6 +94,49 @@ namespace FileSearcher.Tests
             Assert.Empty(_service.SearchInFile(path, "秘密关键词"));
         }
 
+        [Fact]
+        public void Docx_TableParagraph_Found()
+        {
+            // F1 回归：表格内的段落位于 body 的更深层级（w:tbl/w:tr/w:tc/w:p），
+            // 修复前 Elements&lt;Paragraph&gt; 只读直接子节点 → 表格内容漏检
+            string path = Path.Combine(_dir, "table.docx");
+            CreateDocx(path, body =>
+            {
+                body.Append(new Paragraph(new Run(new Text("普通段落"))));
+                body.Append(new Table(
+                    new TableRow(
+                        new TableCell(
+                            new Paragraph(new Run(new Text("表格单元格内的秘密关键词")))))));
+            });
+
+            var results = _service.SearchInFile(path, "秘密关键词");
+
+            var result = Assert.Single(results);
+            Assert.Contains("表格单元格内", result.Context);
+        }
+
+        [Fact]
+        public void Docx_HeaderAndFooter_Found()
+        {
+            // F1 回归：页眉/页脚是独立 Part，修复前完全不读取
+            string path = Path.Combine(_dir, "header.docx");
+            using (var document = WordprocessingDocument.Create(path, WordprocessingDocumentType.Document))
+            {
+                var mainPart = document.AddMainDocumentPart();
+                mainPart.Document = new Document(new Body(
+                    new Paragraph(new Run(new Text("正文内容")))));
+
+                var headerPart = mainPart.AddNewPart<HeaderPart>();
+                headerPart.Header = new Header(new Paragraph(new Run(new Text("页眉里的秘密关键词"))));
+
+                var footerPart = mainPart.AddNewPart<FooterPart>();
+                footerPart.Footer = new Footer(new Paragraph(new Run(new Text("页脚里的机密词汇"))));
+            }
+
+            Assert.NotEmpty(_service.SearchInFile(path, "秘密关键词"));
+            Assert.NotEmpty(_service.SearchInFile(path, "机密词汇"));
+        }
+
         /// <summary>
         /// 创建最小可读的 .docx 文件：仅包含主文档部件与调用方注入的 Body 内容
         /// </summary>
