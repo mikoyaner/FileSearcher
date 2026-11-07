@@ -211,9 +211,13 @@ namespace FileSearcher
                 _currentProcessingFile = null;
 
                 // 取消时丢弃未刷新的结果（防止卡死）；正常完成时刷新剩余
+                // C3 修复：收尾冲刷不再按 500 条截断 —— 此前 FlushPendingResults(MaxFlushPerTick * 5)
+                // 只入账 500 条，其余被 Clear() 静默丢弃，匹配量超过刷屏速率时导出数据缺失。
+                // 全量冲刷是安全的：能走到 finally 说明 ForEachAsync 已完整退出
+                //（正常完成或全部工作体已随取消退出），队列不会再有新写入。
                 if (!_stopRequested)
                 {
-                    FlushPendingResults(MaxFlushPerTick * 5);
+                    FlushPendingResults(int.MaxValue);
                 }
                 _pendingResults.Clear();
 
