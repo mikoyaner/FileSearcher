@@ -21,7 +21,7 @@ namespace FileSearcher.Services
             {
                 var mainPart = document.MainDocumentPart;
                 var body = mainPart?.Document?.Body;
-                if (body == null) return string.Empty;
+                if (mainPart == null || body == null) return string.Empty;
 
                 // F1 修复：Elements&lt;Paragraph&gt;() 只遍历 body 的"直接子节点"，
                 // 表格（w:tbl）内的段落在 w:tbl/w:tr/w:tc/w:p 路径上，属于更深层级，会被整体漏检；
