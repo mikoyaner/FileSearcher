@@ -168,18 +168,31 @@ namespace FileSearcher.Services
                    (c >= 0x00A0 && c <= 0x00FF);   // Latin-1 补充
         }
 
+        /// <summary>
+        /// 获取单元格文本
+        /// F10 修复：与 XlsxParserService 相同 —— 单元格级异常降级，
+        /// 避免单个坏单元格导致整个 .xls 文件被静默跳过
+        /// </summary>
         private string GetCellText(ICell cell)
         {
-            return cell.CellType switch
+            try
             {
-                CellType.Numeric => DateUtil.IsCellDateFormatted(cell)
-                    ? cell.DateCellValue.ToString("yyyy-MM-dd HH:mm:ss")
-                    : cell.NumericCellValue.ToString(),
-                CellType.String => cell.StringCellValue ?? "",
-                CellType.Boolean => cell.BooleanCellValue.ToString(),
-                CellType.Formula => GetFormulaCellText(cell),
-                _ => cell.ToString() ?? ""
-            };
+                return cell.CellType switch
+                {
+                    CellType.Numeric => DateUtil.IsCellDateFormatted(cell)
+                        ? cell.DateCellValue.ToString("yyyy-MM-dd HH:mm:ss")
+                        : cell.NumericCellValue.ToString(),
+                    CellType.String => cell.StringCellValue ?? "",
+                    CellType.Boolean => cell.BooleanCellValue.ToString(),
+                    CellType.Formula => GetFormulaCellText(cell),
+                    _ => cell.ToString() ?? ""
+                };
+            }
+            catch
+            {
+                // 单格异常降级，不影响同文件其他单元格
+                return cell.ToString() ?? "";
+            }
         }
 
         private string GetFormulaCellText(ICell cell)

@@ -54,19 +54,30 @@ namespace FileSearcher.Services
 
         /// <summary>
         /// 获取单元格文本
+        /// F10 修复：单个单元格的异常（如非法日期格式导致 IsCellDateFormatted/DateCellValue 抛出）
+        /// 此前会沿调用链上抛，被外层空 catch 吞掉 → 整个文件静默跳过；
+        /// 现按单元格降级：异常单元格退化为 ToString()，其余单元格正常解析
         /// </summary>
         private string GetCellText(ICell cell)
         {
-            return cell.CellType switch
+            try
             {
-                CellType.Numeric => DateUtil.IsCellDateFormatted(cell)
-                    ? cell.DateCellValue.ToString("yyyy-MM-dd HH:mm:ss")
-                    : cell.NumericCellValue.ToString(),
-                CellType.String => cell.StringCellValue ?? "",
-                CellType.Boolean => cell.BooleanCellValue.ToString(),
-                CellType.Formula => GetFormulaCellText(cell),
-                _ => cell.ToString() ?? ""
-            };
+                return cell.CellType switch
+                {
+                    CellType.Numeric => DateUtil.IsCellDateFormatted(cell)
+                        ? cell.DateCellValue.ToString("yyyy-MM-dd HH:mm:ss")
+                        : cell.NumericCellValue.ToString(),
+                    CellType.String => cell.StringCellValue ?? "",
+                    CellType.Boolean => cell.BooleanCellValue.ToString(),
+                    CellType.Formula => GetFormulaCellText(cell),
+                    _ => cell.ToString() ?? ""
+                };
+            }
+            catch
+            {
+                // 单格异常降级，不影响同文件其他单元格
+                return cell.ToString() ?? "";
+            }
         }
 
         private string GetFormulaCellText(ICell cell)
