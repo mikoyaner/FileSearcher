@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.IO;
 using FileSearcher.Models;
 
@@ -19,6 +20,11 @@ namespace FileSearcher.Services
         // 上下文前后字符数
         private const int ContextLength = 50;
 
+        // F3 修复：解析/处理失败的文件记录（文件名 + 原因），供 UI 层在搜索结束后汇总展示。
+        // 此前整条链路空 catch 吞异常，用户无法区分"没有匹配"与"没搜到"（静默假阴性）。
+        // ConcurrentQueue：多个并行工作体会同时写入。
+        public ConcurrentQueue<string> Errors { get; } = new();
+
         public SearchService()
         {
             _textParser = new TextParserService();
@@ -39,6 +45,11 @@ namespace FileSearcher.Services
         {
             var results = new List<SearchResult>();
 
+            // 空关键词防御：UI 已拒绝空关键词，此处兜底 —— IndexOf("") 会从同一位置
+            // 反复命中直至触及 MaxMatchesPerFile，产生 10 条无意义的重复结果
+            if (string.IsNullOrEmpty(keyword))
+                return results;
+
             try
             {
                 string content = ParseFile(filePath);
@@ -51,9 +62,11 @@ namespace FileSearcher.Services
 
                 results = FindMatches(filePath, content, keyword, ct);
             }
-            catch
+            catch (Exception ex) when (ex is not OutOfMemoryException)
             {
-                // 单个文件解析失败不中断整个搜索
+                // F3 修复：单文件失败不中断整个搜索，但必须留下原因；
+                // OOM 不吞 —— 继续运行可能恶化状态，交由上层统一处理
+                Errors.Enqueue($"{Path.GetFileName(filePath)}：{ex.Message}");
             }
 
             return results;

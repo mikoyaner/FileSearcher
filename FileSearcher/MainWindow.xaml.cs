@@ -106,6 +106,7 @@ namespace FileSearcher
             _lastDisplayedFile = null;
             _currentProcessingFile = null;
             _stopRequested = false;
+            _searchService.Errors.Clear(); // F3：清空上一轮搜索的失败记录
             TxtResults.Clear();
             BtnExport.IsEnabled = false;
             SetSearchingState(true);
@@ -165,16 +166,25 @@ namespace FileSearcher
                         }
                         catch (TimeoutException)
                         {
-                            // 单文件超时跳过（F3 将补充失败记录）
+                            // F3：超时不再静默跳过 —— 记录原因供搜索结束后汇总提示
+                            _searchService.Errors.Enqueue($"{Path.GetFileName(filePath)}：处理超时（>5 秒），已跳过");
                         }
                         catch (OperationCanceledException)
                         {
                             // 搜索被取消：交由 ForEachAsync 统一向外传播，本工作体退出
                             throw;
                         }
-                        catch
+                        catch (Exception ex)
                         {
-                            // 单文件失败不中断搜索（F3 将补充失败记录）
+                            // F3：单文件失败不中断搜索，但必须留痕；OOM 不吞，交由上层统一处理
+                            if (ex is not OutOfMemoryException)
+                            {
+                                _searchService.Errors.Enqueue($"{Path.GetFileName(filePath)}：{ex.Message}");
+                            }
+                            else
+                            {
+                                throw;
+                            }
                         }
                         finally
                         {
@@ -325,6 +335,20 @@ namespace FileSearcher
                     TxtResults.Text = $"未找到包含 \"{_currentKeyword}\" 的内容。";
                 }
                 TxtInfo.Text = $"搜索完成 | 匹配：{_searchResults.Count} 条 | 文件夹：{_selectedFolder}";
+            }
+
+            // F3：汇总本次搜索中解析失败/超时被跳过的文件，让"结果不完整"可见
+            var errors = new List<string>();
+            while (_searchService.Errors.TryDequeue(out var error))
+            {
+                errors.Add(error);
+            }
+
+            if (errors.Count > 0)
+            {
+                var preview = string.Join("\n", errors.Take(10).Select(e => $"  ⚠ {e}"));
+                var suffix = errors.Count > 10 ? $"\n  ... 等共 {errors.Count} 个文件" : "";
+                TxtResults.AppendText($"\n以下 {errors.Count} 个文件处理失败或超时，已跳过：\n{preview}{suffix}\n");
             }
 
             BtnExport.IsEnabled = _searchResults.Count > 0;

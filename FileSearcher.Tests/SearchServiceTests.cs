@@ -77,6 +77,34 @@ namespace FileSearcher.Tests
         }
 
         [Fact]
+        public void EmptyKeyword_ReturnsNoResults()
+        {
+            // F3 回归：空关键词兜底防御 —— 修复前 IndexOf("") 会在同一位置反复命中，
+            // 返回 10 条无意义结果
+            string path = TestHelpers.WriteAllText(_dir, "kw.txt", "some content here");
+
+            Assert.Empty(_service.SearchInFile(path, ""));
+        }
+
+        [Fact]
+        public void SearchInFile_RecordsError_WhenFileLocked()
+        {
+            // F3 回归：文件被独占锁定时不应静默失败 —— 结果为空但 Errors 必须留痕
+            string path = TestHelpers.WriteAllText(_dir, "locked.txt", "含有关键词的内容");
+            var service = new SearchService();
+
+            // 以独占方式锁定文件（FileShare.None），模拟被占用且禁止共享读取的场景
+            using (var lockStream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                var results = service.SearchInFile(path, "关键词");
+
+                Assert.Empty(results);
+                Assert.NotEmpty(service.Errors);
+                Assert.Contains("locked.txt", service.Errors.Single());
+            }
+        }
+
+        [Fact]
         public void Docx_BodyParagraph_Found()
         {
             string path = Path.Combine(_dir, "sample.docx");
