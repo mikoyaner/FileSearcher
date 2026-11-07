@@ -126,67 +126,69 @@ namespace FileSearcher
 
                 if (token.IsCancellationRequested) return;
 
-                // 2. 并行搜索文件（每个文件有超时保护，防止单文件卡死整个搜索）
-                var searchTask = Task.Run(() =>
+                // 2. 并行搜索
+                // C1 修复：此前为 Parallel.ForEach 工作体内嵌 Task.Run + workTask.Wait(5s) 同步阻塞，
+                // P 个并行体全部阻塞等待自己排队的内层任务 → 线程池饥饿、实际并行度被线程注入速率钳制、
+                // 内层任务可能仅因排队而"伪超时"被静默跳过。现改为 ForEachAsync + WaitAsync：
+                //   - 等待超时不再占用线程池线程（异步等待）；
+                //   - 超时（TimeoutException）与取消（OperationCanceledException）可区分，不再混淆；
+                //   - 内层任务携带 token，在解析边界协作式提前退出，孤儿任务可尽早止血。
+                var options = new ParallelOptions
                 {
-                    var options = new ParallelOptions
-                    {
-                        MaxDegreeOfParallelism = Environment.ProcessorCount,
-                        CancellationToken = token
-                    };
+                    MaxDegreeOfParallelism = Environment.ProcessorCount,
+                    CancellationToken = token
+                };
 
-                    try
+                try
+                {
+                    await Parallel.ForEachAsync(files, options, async (filePath, ct) =>
                     {
-                        Parallel.ForEach(files, options, filePath =>
+                        try
                         {
-                            if (_stopRequested || token.IsCancellationRequested) return;
+                            _currentProcessingFile = Path.GetFileName(filePath);
 
-                            try
+                            // C1：单文件 5 秒超时保护 —— WaitAsync 超时抛 TimeoutException，token 取消抛 OCE
+                            List<SearchResult> fileResults =
+                                await Task.Run(() => _searchService.SearchInFile(filePath, keyword, ct), ct)
+                                          .WaitAsync(TimeSpan.FromSeconds(5), ct);
+
+                            // C2 修复：入队守卫使用本次搜索的 ct（闭包捕获，代际隔离）。
+                            // 此前用的是共享字段 _stopRequested —— 它会被下一次搜索复位为 false，
+                            // 导致旧搜索的残留工作体把旧关键词结果混入新搜索（结果串扰 + 进度污染）。
+                            if (!ct.IsCancellationRequested)
                             {
-                                _currentProcessingFile = Path.GetFileName(filePath);
-
-                                // 在独立线程中搜索，加超时保护（防止文件被锁定导致卡死）
-                                List<SearchResult>? fileResults = null;
-                                var workTask = Task.Run(() => _searchService.SearchInFile(filePath, keyword));
-
-                                if (workTask.Wait(TimeSpan.FromSeconds(5)))
+                                foreach (var r in fileResults)
                                 {
-                                    fileResults = workTask.Result;
-                                }
-                                // 超时则跳过该文件
-
-                                if (fileResults != null && !_stopRequested)
-                                {
-                                    foreach (var r in fileResults)
-                                    {
-                                        _pendingResults.Enqueue(r);
-                                    }
+                                    _pendingResults.Enqueue(r);
                                 }
                             }
-                            catch
+                        }
+                        catch (TimeoutException)
+                        {
+                            // 单文件超时跳过（F3 将补充失败记录）
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            // 搜索被取消：交由 ForEachAsync 统一向外传播，本工作体退出
+                            throw;
+                        }
+                        catch
+                        {
+                            // 单文件失败不中断搜索（F3 将补充失败记录）
+                        }
+                        finally
+                        {
+                            // C2：进度计数同样以 ct 为代际守卫，防止旧代际污染新搜索的进度条
+                            if (!ct.IsCancellationRequested)
                             {
-                                // 单个文件失败不中断
+                                Interlocked.Increment(ref _processedCount);
                             }
-                            finally
-                            {
-                                if (!_stopRequested)
-                                {
-                                    Interlocked.Increment(ref _processedCount);
-                                }
-                            }
-                        });
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        // 取消时正常退出
-                    }
-                });
-
-                // 等待搜索完成或取消（取消时立即返回）
-                var cancelTcs = new TaskCompletionSource();
-                using (token.Register(() => cancelTcs.TrySetResult()))
+                        }
+                    });
+                }
+                catch (OperationCanceledException)
                 {
-                    await Task.WhenAny(searchTask, cancelTcs.Task);
+                    // 取消时正常退出
                 }
             }
             catch (OperationCanceledException)

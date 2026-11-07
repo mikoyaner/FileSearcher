@@ -31,7 +31,11 @@ namespace FileSearcher.Services
         /// <summary>
         /// 在指定文件中搜索关键词
         /// </summary>
-        public List<SearchResult> SearchInFile(string filePath, string keyword)
+        /// <param name="filePath">文件完整路径</param>
+        /// <param name="keyword">搜索关键词（调用方已保证非空）</param>
+        /// <param name="ct">取消令牌：C1 修复 —— 搜索被取消/超时后，解析流程在边界处协作式退出，
+        /// 避免"孤儿任务"在取消后继续完整解析大文件</param>
+        public List<SearchResult> SearchInFile(string filePath, string keyword, CancellationToken ct = default)
         {
             var results = new List<SearchResult>();
 
@@ -41,8 +45,11 @@ namespace FileSearcher.Services
                 if (string.IsNullOrEmpty(content))
                     return results;
 
-                // 不区分大小写搜索
-                results = FindMatches(filePath, content, keyword);
+                // 不区分大小写搜索（取消后直接返回空，避免产生不会展示的匹配）
+                if (ct.IsCancellationRequested)
+                    return results;
+
+                results = FindMatches(filePath, content, keyword, ct);
             }
             catch
             {
@@ -76,7 +83,7 @@ namespace FileSearcher.Services
         /// <summary>
         /// 在文本内容中查找所有匹配，提取上下文
         /// </summary>
-        private List<SearchResult> FindMatches(string filePath, string content, string keyword)
+        private List<SearchResult> FindMatches(string filePath, string content, string keyword, CancellationToken ct)
         {
             var results = new List<SearchResult>();
             int matchCount = 0;
@@ -87,6 +94,10 @@ namespace FileSearcher.Services
 
             while (matchCount < MaxMatchesPerFile)
             {
+                // C1：每个匹配间隙检查取消，长文本多匹配时可尽快退出
+                if (ct.IsCancellationRequested)
+                    break;
+
                 int foundIndex = content.IndexOf(keyword, searchIndex, StringComparison.OrdinalIgnoreCase);
                 if (foundIndex < 0)
                     break;
