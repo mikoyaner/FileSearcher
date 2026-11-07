@@ -357,7 +357,7 @@ namespace FileSearcher
         /// <summary>
         /// 导出 CSV
         /// </summary>
-        private void BtnExport_Click(object sender, RoutedEventArgs e)
+        private async void BtnExport_Click(object sender, RoutedEventArgs e)
         {
             if (_searchResults.Count == 0)
             {
@@ -377,7 +377,8 @@ namespace FileSearcher
             {
                 try
                 {
-                    _csvExportService.ExportToCsv(_searchResults, dialog.FileName);
+                    // F7：数万行同步写会阻塞 UI 线程造成界面假死，导出移至后台线程
+                    await Task.Run(() => _csvExportService.ExportToCsv(_searchResults, dialog.FileName));
                     System.Windows.MessageBox.Show($"导出成功！\n文件路径：{dialog.FileName}", "导出完成",
                         MessageBoxButton.OK, MessageBoxImage.Information);
                 }

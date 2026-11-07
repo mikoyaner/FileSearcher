@@ -53,7 +53,47 @@ namespace FileSearcher.Tests
             }, path);
 
             string content = File.ReadAllText(path);
-            Assert.Contains(@"C:\a.txt,2,无特殊字符", content);
+            // F7：数据行包含行号列（二进制 Office 格式无行概念，此处为 0）
+            Assert.Contains(@"C:\a.txt,2,0,无特殊字符", content);
+        }
+
+        [Fact]
+        public void Export_IncludesLineNumberColumn()
+        {
+            // F7 回归：LineNumber 此前已计算但未导出 —— 纯文本文件的行号信息丢失
+            string path = Path.Combine(_dir, "lineno.csv");
+            _service.ExportToCsv(new List<SearchResult>
+            {
+                new() { FilePath = @"C:\a.txt", MatchIndex = 1, LineNumber = 42, Context = "内容" }
+            }, path);
+
+            string content = File.ReadAllText(path);
+            Assert.Contains(@"C:\a.txt,1,42,内容", content);
+        }
+
+        [Fact]
+        public void Export_RowsOrderedByFilePathThenMatchIndex()
+        {
+            // F7 回归：并行搜索按完成顺序入队，直接导出行序非确定 ——
+            // 导出前必须按 文件路径+匹配序号 排序
+            string path = Path.Combine(_dir, "ordered.csv");
+            _service.ExportToCsv(new List<SearchResult>
+            {
+                new() { FilePath = @"C:\b.txt", MatchIndex = 2, Context = "b2" },
+                new() { FilePath = @"C:\a.txt", MatchIndex = 2, Context = "a2" },
+                new() { FilePath = @"C:\b.txt", MatchIndex = 1, Context = "b1" },
+                new() { FilePath = @"C:\a.txt", MatchIndex = 1, Context = "a1" },
+            }, path);
+
+            string[] dataLines = File.ReadAllLines(path).Skip(1).ToArray();
+
+            Assert.Equal(new[]
+            {
+                @"C:\a.txt,1,0,a1",
+                @"C:\a.txt,2,0,a2",
+                @"C:\b.txt,1,0,b1",
+                @"C:\b.txt,2,0,b2",
+            }, dataLines);
         }
 
         [Fact]
@@ -63,7 +103,7 @@ namespace FileSearcher.Tests
             _service.ExportToCsv(new List<SearchResult>(), path);
 
             string firstLine = File.ReadLines(path).First();
-            Assert.Equal("文件路径,匹配序号,上下文内容", firstLine);
+            Assert.Equal("文件路径,匹配序号,行号,上下文内容", firstLine);
         }
 
         public void Dispose()

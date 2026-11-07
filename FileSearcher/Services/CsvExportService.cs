@@ -20,15 +20,18 @@ namespace FileSearcher.Services
 
             using (var writer = new StreamWriter(outputPath, false, utf8Bom))
             {
-                // 写入表头
-                writer.WriteLine("文件路径,匹配序号,上下文内容");
+                // F7：表头新增"行号"列 —— SearchResult.LineNumber 此前已计算但未导出，信息丢失
+                writer.WriteLine("文件路径,匹配序号,行号,上下文内容");
 
-                // 写入数据行
-                foreach (var result in results)
+                // F7：导出前按 文件路径 + 匹配序号 排序 —— 并行搜索按完成顺序入队，
+                // 直接导出行序非确定（同一文件的匹配会被其他文件的行打断）
+                foreach (var result in results
+                    .OrderBy(r => r.FilePath, StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(r => r.MatchIndex))
                 {
                     string filePath = EscapeCsvField(result.FilePath);
                     string context = EscapeCsvField(result.Context);
-                    writer.WriteLine($"{filePath},{result.MatchIndex},{context}");
+                    writer.WriteLine($"{filePath},{result.MatchIndex},{result.LineNumber},{context}");
                 }
             }
         }
