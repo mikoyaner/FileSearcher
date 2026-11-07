@@ -118,8 +118,8 @@ namespace FileSearcher
 
             try
             {
-                // 1. 扫描文件（后台线程）
-                var files = await Task.Run(() => _scannerService.ScanFiles(_selectedFolder), token);
+                // 1. 扫描文件（后台线程；token 同时传入扫描器内部 —— F6：扫描阶段本身也可取消）
+                var files = await Task.Run(() => _scannerService.ScanFiles(_selectedFolder, token), token);
                 _totalFiles = files.Count;
 
                 ProgressBar.Maximum = _totalFiles;
