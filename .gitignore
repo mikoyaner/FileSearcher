@@ -1,0 +1,66 @@
+# ================= 构建产物 =================
+[Bb]in/
+[Oo]bj/
+publish/
+out/
+artifacts/
+
+# ================= API Key / 密钥 / 账号 / 隐私 =================
+.env
+.env.*
+*.env
+secrets.json
+appsettings.Secret*.json
+*api_key*
+*apikey*
+*APIKEY*
+*credential*
+*token*.json
+*.pem
+*.key
+*.pfx
+*.p12
+*.pfxpwd
+
+# ================= 总结 / 笔记 / 报告类文档 =================
+*总结*
+*摘要*
+*summary*.md
+*Summary*.md
+*SUMMARY*.md
+*笔记*
+*报告*.md
+*.notes.*
+
+# ================= 视频文件 =================
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.wmv
+*.flv
+*.webm
+*.m4v
+*.mpg
+*.mpeg
+*.3gp
+*.ts
+*.mts
+
+# ================= 搜索结果 / 含文件路径的数据文件 =================
+*.csv
+*.log
+*.tmp
+FileListAbsolute.txt
+PublishOutputs*.txt
+scan_results*
+
+# ================= IDE / 操作系统 =================
+.vs/
+.idea/
+*.user
+*.suo
+*.sln.docstates
+*.sln.DotSettings.user
+Thumbs.db
+.DS_Store
