@@ -63,7 +63,7 @@ namespace FileSearcher.Tests
 
             Assert.Contains(files, f => f.EndsWith("inside.txt"));
             // loop 指向扫描根自身，若被误入栈会在 inside.txt 之外产生重复文件路径
-            Assert.Equal(1, files.Count);
+            Assert.Single(files);
         }
 
         /// <summary>
