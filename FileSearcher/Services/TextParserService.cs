@@ -1,10 +1,11 @@
 using System.IO;
-using FileSearcher.Helpers;
 
 namespace FileSearcher.Services
 {
     /// <summary>
-    /// 纯文本文件解析服务（.txt, .csv, .log, .md, .json, .xml, .html, .htm）
+    /// 纯文本文件类型判断服务（.txt, .csv, .log, .md, .json, .xml, .html, .htm）
+    /// F9 重构后：文本内容的流式读取与匹配移入 SearchService.SearchInTextFile，
+    /// 本服务仅负责文件类型判定
     /// </summary>
     public class TextParserService
     {
@@ -20,14 +21,6 @@ namespace FileSearcher.Services
         {
             string ext = Path.GetExtension(filePath);
             return TextExtensions.Contains(ext);
-        }
-
-        /// <summary>
-        /// 解析纯文本文件，返回全文内容
-        /// </summary>
-        public string Parse(string filePath)
-        {
-            return EncodingHelper.ReadFileWithDetectedEncoding(filePath);
         }
     }
 }

@@ -105,6 +105,36 @@ namespace FileSearcher.Tests
         }
 
         [Fact]
+        public void Streaming_LineNumber_AccurateDeepInLargeFile()
+        {
+            // F5/F9 回归：5000 行文件中第 4321 行包含关键词 ——
+            // 行号必须来自流式读取的计数；修复前的 GetLineNumber 对每个匹配从文件头
+            // 重新扫描换行符，O(匹配数×文件长度)，且流式改造后该方法已删除
+            var lines = Enumerable.Range(1, 5000).Select(i => $"第 {i} 行普通内容").ToList();
+            lines[4320] = "line 4321 contains 目标词 here";
+            string path = TestHelpers.WriteAllText(_dir, "deep.txt", string.Join("\n", lines));
+
+            var result = Assert.Single(_service.SearchInFile(path, "目标词"));
+
+            Assert.Equal(4321, result.LineNumber);
+            Assert.Contains("目标词", result.Context);
+        }
+
+        [Fact]
+        public void Streaming_ReachesEnd_UnderMatchCap()
+        {
+            // F9 回归：达到单文件上限后提前停止读取 —— 结果仍精确为 10 条且序号连续
+            var lines = Enumerable.Range(1, 500).Select(i => $"hit on line {i}").ToList();
+            string path = TestHelpers.WriteAllText(_dir, "cap.txt", string.Join("\n", lines));
+
+            var results = _service.SearchInFile(path, "hit");
+
+            Assert.Equal(10, results.Count);
+            Assert.Equal(Enumerable.Range(1, 10), results.Select(r => r.MatchIndex));
+            Assert.Equal(Enumerable.Range(1, 10), results.Select(r => r.LineNumber));
+        }
+
+        [Fact]
         public void Docx_BodyParagraph_Found()
         {
             string path = Path.Combine(_dir, "sample.docx");

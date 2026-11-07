@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
 using System.IO;
+using System.Text;
+using FileSearcher.Helpers;
 using FileSearcher.Models;
 
 namespace FileSearcher.Services
@@ -52,15 +54,20 @@ namespace FileSearcher.Services
 
             try
             {
-                string content = ParseFile(filePath);
-                if (string.IsNullOrEmpty(content))
-                    return results;
+                if (_textParser.CanParse(filePath))
+                {
+                    // F9 修复：纯文本文件走流式逐行匹配 —— 内存占用与文件大小解耦
+                    //（此前 File.ReadAllBytes 整文件入内存，100MB 上限 × 并行度峰值可达数 GB）
+                    results = SearchInTextFile(filePath, keyword, ct);
+                }
+                else
+                {
+                    string content = ParseFile(filePath);
+                    if (string.IsNullOrEmpty(content) || ct.IsCancellationRequested)
+                        return results;
 
-                // 不区分大小写搜索（取消后直接返回空，避免产生不会展示的匹配）
-                if (ct.IsCancellationRequested)
-                    return results;
-
-                results = FindMatches(filePath, content, keyword, ct);
+                    results = FindMatches(filePath, content, keyword, ct);
+                }
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
@@ -73,7 +80,7 @@ namespace FileSearcher.Services
         }
 
         /// <summary>
-        /// 根据文件类型选择解析器
+        /// 根据文件类型选择解析器（二进制 Office 格式；纯文本已在上游分流到流式路径）
         /// </summary>
         private string ParseFile(string filePath)
         {
@@ -81,8 +88,6 @@ namespace FileSearcher.Services
 
             return ext switch
             {
-                ".txt" or ".csv" or ".log" or ".md" or ".json" or ".xml" or ".html" or ".htm"
-                    => _textParser.Parse(filePath),
                 ".docx" => _docxParser.Parse(filePath),
                 ".xlsx" => _xlsxParser.Parse(filePath),
                 ".pptx" => _pptxParser.Parse(filePath),
@@ -94,16 +99,82 @@ namespace FileSearcher.Services
         }
 
         /// <summary>
-        /// 在文本内容中查找所有匹配，提取上下文
+        /// F9 修复：纯文本文件流式搜索 —— 逐行读取匹配。
+        /// 行号在逐行读取时天然获得（F5 修复），无需此前 O(匹配数 × 文件长度) 的
+        /// GetLineNumber 回溯扫描；达到单文件上限即停止读取，大文件提前收工。
+        /// 行为变化：上下文在行内截取（此前可跨行拼接后把换行替换为空格）。
+        /// </summary>
+        private List<SearchResult> SearchInTextFile(string filePath, string keyword, CancellationToken ct)
+        {
+            var results = new List<SearchResult>();
+            int matchCount = 0;
+
+            // 单次打开文件：先探测编码（只读流头部样本），再重置到起点用该编码逐行读取，
+            // 避免探测/读取两次打开产生 TOCTOU 窗口
+            using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            {
+                Encoding encoding = EncodingHelper.DetectEncoding(stream);
+                stream.Position = 0; // 探测只消费了头部样本，重置后交给 StreamReader 完整读取
+
+                using var reader = new StreamReader(stream, encoding);
+                int lineNumber = 0;
+                string? line;
+                while ((line = reader.ReadLine()) != null)
+                {
+                    lineNumber++;
+
+                    // C1：逐行检查取消，长文件可尽快退出
+                    if (ct.IsCancellationRequested)
+                        break;
+
+                    int searchIndex = 0;
+                    while (matchCount < MaxMatchesPerFile)
+                    {
+                        int foundIndex = line.IndexOf(keyword, searchIndex, StringComparison.OrdinalIgnoreCase);
+                        if (foundIndex < 0)
+                            break;
+
+                        matchCount++;
+                        results.Add(new SearchResult
+                        {
+                            FilePath = filePath,
+                            MatchIndex = matchCount,
+                            LineNumber = lineNumber,
+                            Context = BuildContext(line, foundIndex, keyword.Length)
+                        });
+                        searchIndex = foundIndex + keyword.Length;
+                    }
+
+                    // 达到单文件上限：停止读取整个文件
+                    if (matchCount >= MaxMatchesPerFile)
+                        break;
+                }
+            }
+
+            return results;
+        }
+
+        /// <summary>
+        /// 构建匹配上下文：关键词前后各 ContextLength 字符（行内截取，天然不越界）
+        /// </summary>
+        private static string BuildContext(string line, int foundIndex, int keywordLength)
+        {
+            int contextStart = Math.Max(0, foundIndex - ContextLength);
+            int contextEnd = Math.Min(line.Length, foundIndex + keywordLength + ContextLength);
+            // 行内容不含换行符（ReadLine 已剥离行结束符），无需再做换行替换
+            return line.Substring(contextStart, contextEnd - contextStart).Trim();
+        }
+
+        /// <summary>
+        /// 在解析出的整段文本中查找所有匹配，提取上下文。
+        /// 仅用于 docx/xlsx/pptx/doc/xls/ppt 等二进制 Office 格式 —— 此类格式无"行"概念，
+        /// LineNumber 恒为 0；纯文本文件的行号由 SearchInTextFile 逐行提供。
         /// </summary>
         private List<SearchResult> FindMatches(string filePath, string content, string keyword, CancellationToken ct)
         {
             var results = new List<SearchResult>();
             int matchCount = 0;
             int searchIndex = 0;
-
-            // 预计算行号（用于纯文本文件）
-            bool isTextFile = _textParser.CanParse(filePath);
 
             while (matchCount < MaxMatchesPerFile)
             {
@@ -125,18 +196,11 @@ namespace FileSearcher.Services
                 // 替换换行符为空格
                 context = context.Replace("\r\n", " ").Replace("\r", " ").Replace("\n", " ");
 
-                // 计算行号（如适用）
-                int lineNumber = 0;
-                if (isTextFile)
-                {
-                    lineNumber = GetLineNumber(content, foundIndex);
-                }
-
                 results.Add(new SearchResult
                 {
                     FilePath = filePath,
                     MatchIndex = matchCount,
-                    LineNumber = lineNumber,
+                    LineNumber = 0,
                     Context = context.Trim()
                 });
 
@@ -144,20 +208,6 @@ namespace FileSearcher.Services
             }
 
             return results;
-        }
-
-        /// <summary>
-        /// 计算指定位置所在的行号
-        /// </summary>
-        private int GetLineNumber(string content, int position)
-        {
-            int line = 1;
-            for (int i = 0; i < position && i < content.Length; i++)
-            {
-                if (content[i] == '\n')
-                    line++;
-            }
-            return line;
         }
     }
 }
