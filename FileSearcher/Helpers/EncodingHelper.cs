@@ -62,9 +62,22 @@ namespace FileSearcher.Helpers
 
         /// <summary>
         /// 检测 BOM 头
+        /// F4 修复：UTF-32 LE 的 BOM（FF FE 00 00）同时是 UTF-16 LE BOM（FF FE）的前缀，
+        /// 因此 4 字节 BOM 必须先于 2 字节 BOM 判定 —— 此前顺序颠倒导致 UTF-32 文件
+        /// 被误判为 UTF-16，解码出乱码后搜索必然失败；并补充此前完全缺失的 UTF-32 BE 分支
         /// </summary>
         private static Encoding? DetectBom(byte[] bytes)
         {
+            // —— 4 字节 BOM 优先 ——
+            // UTF-32 LE BOM: FF FE 00 00
+            if (bytes.Length >= 4 && bytes[0] == 0xFF && bytes[1] == 0xFE && bytes[2] == 0x00 && bytes[3] == 0x00)
+                return Encoding.UTF32;
+
+            // UTF-32 BE BOM: 00 00 FE FF
+            if (bytes.Length >= 4 && bytes[0] == 0x00 && bytes[1] == 0x00 && bytes[2] == 0xFE && bytes[3] == 0xFF)
+                return new UTF32Encoding(bigEndian: true, byteOrderMark: true);
+
+            // —— 2 字节 / 3 字节 BOM ——
             // UTF-8 BOM: EF BB BF
             if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
                 return Encoding.UTF8;
@@ -76,10 +89,6 @@ namespace FileSearcher.Helpers
             // UTF-16 BE BOM: FE FF
             if (bytes.Length >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF)
                 return Encoding.BigEndianUnicode;
-
-            // UTF-32 LE BOM: FF FE 00 00
-            if (bytes.Length >= 4 && bytes[0] == 0xFF && bytes[1] == 0xFE && bytes[2] == 0x00 && bytes[3] == 0x00)
-                return Encoding.UTF32;
 
             return null;
         }

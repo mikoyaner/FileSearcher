@@ -44,6 +44,30 @@ namespace FileSearcher.Tests
         }
 
         [Fact]
+        public void Utf32Le_WithBom_DecodesCorrectly()
+        {
+            // F4 回归：UTF-32 LE BOM（FF FE 00 00）是 UTF-16 LE BOM（FF FE）的扩展前缀，
+            // 修复前先命中 UTF-16 分支 → 按 2 字节对齐解码出乱码，搜索必然失败
+            string content = "中文内容，用于验证 UTF-32 LE BOM 判定顺序";
+            byte[] bytes = Encoding.UTF32.GetPreamble().Concat(Encoding.UTF32.GetBytes(content)).ToArray();
+            string path = TestHelpers.WriteAllBytes(_dir, "utf32le.txt", bytes);
+
+            Assert.Equal(content, EncodingHelper.ReadFileWithDetectedEncoding(path));
+        }
+
+        [Fact]
+        public void Utf32Be_WithBom_DecodesCorrectly()
+        {
+            // F4 回归：修复前完全没有 UTF-32 BE 分支
+            string content = "中文内容，用于验证 UTF-32 BE BOM 判定";
+            var beEncoding = new UTF32Encoding(bigEndian: true, byteOrderMark: true);
+            byte[] bytes = beEncoding.GetPreamble().Concat(beEncoding.GetBytes(content)).ToArray();
+            string path = TestHelpers.WriteAllBytes(_dir, "utf32be.txt", bytes);
+
+            Assert.Equal(content, EncodingHelper.ReadFileWithDetectedEncoding(path));
+        }
+
+        [Fact]
         public void NoBom_GbkChinese_DecodesCorrectly()
         {
             // 无 BOM 的 GBK 文本：足够长以保证 UtfUnknown 检出 GB18030（GBK 超集，解码结果一致）
