@@ -34,6 +34,13 @@ namespace FileSearcher
         // 每次刷新最多写入的结果数（防止UI卡顿）
         private const int MaxFlushPerTick = 100;
 
+        // F8：结果展示区的字符上限（2MB）—— WPF TextBox 每次 AppendText 触发全文重排版，
+        // 持续追加会把 UI 拖入 O(n²) 渲染开销；达到上限后停止"显示"，
+        // 数据仍全量入 _searchResults（F12 配套），完整结果通过"导出 CSV"交付
+        private const int MaxDisplayedChars = 2 * 1024 * 1024;
+        private bool _displayTruncated;
+        private int _displayedChars;
+
         public MainWindow()
         {
             InitializeComponent();
@@ -106,6 +113,8 @@ namespace FileSearcher
             _lastDisplayedFile = null;
             _currentProcessingFile = null;
             _stopRequested = false;
+            _displayTruncated = false; // F8：重置显示截断状态
+            _displayedChars = 0;
             _searchService.Errors.Clear(); // F3：清空上一轮搜索的失败记录
             TxtResults.Clear();
             BtnExport.IsEnabled = false;
@@ -276,38 +285,90 @@ namespace FileSearcher
         }
 
         /// <summary>
-        /// 将缓冲队列中的结果批量写入界面（限制每次最多 maxCount 条，防止UI卡顿）
+        /// 将缓冲队列中的结果批量写入界面。
+        /// 入账（_searchResults，导出数据源）与展示（TxtResults，受 F8 上限约束）解耦：
+        /// 显示可以截断，数据绝不丢。
         /// </summary>
         private void FlushPendingResults(int maxCount)
         {
             if (_pendingResults.IsEmpty) return;
 
-            var sb = new StringBuilder();
-            int flushed = 0;
-
-            while (flushed < maxCount && _pendingResults.TryDequeue(out var result))
+            // F12 修复：先整批取出再按 文件路径+匹配序号 排序 ——
+            // 多个并行工作体交错入队，按入队序直接展示会导致同一文件的
+            // 文件头反复出现、同文件的匹配被割裂
+            var batch = new List<SearchResult>();
+            while (batch.Count < maxCount && _pendingResults.TryDequeue(out var result))
             {
-                _searchResults.Add(result);
+                batch.Add(result);
+            }
 
-                if (result.FilePath != _lastDisplayedFile)
+            if (batch.Count == 0) return;
+
+            batch.Sort((a, b) =>
+            {
+                int byPath = string.Compare(a.FilePath, b.FilePath, StringComparison.OrdinalIgnoreCase);
+                return byPath != 0 ? byPath : a.MatchIndex.CompareTo(b.MatchIndex);
+            });
+
+            // C3 配套：_searchResults 是 CSV 导出的唯一数据源，必须全量入账
+            _searchResults.AddRange(batch);
+
+            // F8：展示层受字符上限约束，超出后只入账不显示
+            if (!_displayTruncated)
+            {
+                var sb = new StringBuilder();
+                int budget = MaxDisplayedChars - _displayedChars;
+
+                foreach (var result in batch)
                 {
-                    sb.AppendLine();
-                    sb.AppendLine($"📄 {result.FilePath}");
-                    sb.AppendLine(new string('─', 50));
-                    _lastDisplayedFile = result.FilePath;
+                    string entry = FormatResult(result);
+                    if (entry.Length > budget)
+                    {
+                        sb.AppendLine();
+                        sb.AppendLine("……结果过多，界面显示已截断；完整结果请使用\"导出 CSV\"。");
+                        _displayTruncated = true;
+                        break;
+                    }
+
+                    sb.Append(entry);
+                    budget -= entry.Length;
                 }
 
-                var lineInfo = result.LineNumber > 0 ? $"[行 {result.LineNumber}] " : "";
-                sb.AppendLine($"  [{result.MatchIndex}] {lineInfo}{result.Context}");
-                flushed++;
+                _displayedChars += sb.Length;
+
+                if (sb.Length > 0)
+                {
+                    TxtResults.AppendText(sb.ToString());
+                    TxtResults.ScrollToEnd();
+                }
             }
 
-            if (flushed > 0)
+            // F11：搜索进行中不启用导出按钮 —— 避免用户导出"进行中的部分结果"；
+            // 最终状态由 FinishSearch 按完整计数统一设置
+            if (!_isSearching)
             {
-                TxtResults.AppendText(sb.ToString());
-                TxtResults.ScrollToEnd();
                 BtnExport.IsEnabled = true;
             }
+        }
+
+        /// <summary>
+        /// 格式化单条结果（含必要的文件分隔头），返回追加到展示区的文本块
+        /// </summary>
+        private string FormatResult(SearchResult result)
+        {
+            var sb = new StringBuilder();
+
+            if (result.FilePath != _lastDisplayedFile)
+            {
+                sb.AppendLine();
+                sb.AppendLine($"📄 {result.FilePath}");
+                sb.AppendLine(new string('─', 50));
+                _lastDisplayedFile = result.FilePath;
+            }
+
+            var lineInfo = result.LineNumber > 0 ? $"[行 {result.LineNumber}] " : "";
+            sb.AppendLine($"  [{result.MatchIndex}] {lineInfo}{result.Context}");
+            return sb.ToString();
         }
 
         /// <summary>
