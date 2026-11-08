@@ -1,10 +1,10 @@
 """上下文截取模块回归测试
 
-覆盖：计数、片段截取、边界钳制、正则转义、换行清洗
+覆盖：计数、片段截取、边界钳制、正则转义、换行清洗、单次扫描限量提取（PY4）
 """
 
 import pytest
-from core.context_extractor import extract_context, count_matches
+from core.context_extractor import extract_context, count_matches, extract_first_context
 
 
 class TestCountMatches:
@@ -72,3 +72,29 @@ class TestExtractContext:
     def test_empty_inputs_return_empty(self):
         assert extract_context("", "kw") == []
         assert extract_context("text", "") == []
+
+
+class TestExtractFirstContext:
+    """PY4 回归：单次扫描同时返回总数与限量片段"""
+
+    def test_counts_all_but_builds_limited_snippets(self):
+        text = "预算 " * 100
+        match_count, snippets = extract_first_context(text, "预算", max_snippets=1)
+
+        assert match_count == 100  # 总数不丢
+        assert len(snippets) == 1  # 片段只建 1 条
+
+    def test_equivalent_to_count_plus_extract(self):
+        # 与"两次全量扫描"的老路径结果等价
+        text = "关键词甲在开头，中间出现关键词，结尾也有关键词"
+        count, snippets = extract_first_context(text, "关键词", max_snippets=1)
+
+        assert count == count_matches(text, "关键词")
+        assert snippets[0][0] == extract_context(text, "关键词")[0][0]
+
+    def test_empty_inputs(self):
+        assert extract_first_context("", "kw") == (0, [])
+        assert extract_first_context("text", "") == (0, [])
+
+    def test_no_match(self):
+        assert extract_first_context("无关内容", "关键词") == (0, [])

@@ -20,11 +20,15 @@ if PROJECT_ROOT not in sys.path:
 
 from utils.file_scanner import scan_files, classify_file
 from parsers import get_parser
-from .context_extractor import extract_context, count_matches
+from .context_extractor import extract_first_context
 
 
 def search_in_text(text: str, keyword: str) -> tuple:
     """在已提取的文本中搜索关键词
+
+    PY4 修复：改用 extract_first_context 单次正则扫描同时完成计数与首条片段提取。
+    此前 count_matches（全量 findall）+ extract_context（为每个匹配都构建片段）
+    两次独立全量扫描，高频关键词 × 大文本时中间对象浪费 O(命中数 × 片段长)。
 
     Args:
         text: 已提取的文件文本内容
@@ -37,11 +41,10 @@ def search_in_text(text: str, keyword: str) -> tuple:
     if not text or not keyword:
         return 0, ''
 
-    match_count = count_matches(text, keyword)
+    match_count, snippets = extract_first_context(text, keyword, max_snippets=1)
     if match_count == 0:
         return 0, ''
 
-    snippets = extract_context(text, keyword)
     first_snippet = snippets[0][0] if snippets else ''
 
     return match_count, first_snippet
