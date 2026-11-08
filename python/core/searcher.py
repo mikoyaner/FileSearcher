@@ -89,6 +89,7 @@ def search_files(
         print(f"发现 {total_files} 个支持的文件")
 
     results = []
+    errors = []  # PY6：解析失败的文件清单 [(路径, 异常描述)]
     processed = 0
     start_time = time.time()
 
@@ -123,9 +124,12 @@ def search_files(
                 })
 
         except ValueError:
-            # 不支持的文件格式，跳过
+            # 不支持的文件格式，跳过（扫描器已按扩展名过滤，此为兜底）
             continue
         except Exception as e:
+            # PY6：解析失败计入清单 —— 配合解析器契约变更（解析器不再内部吞异常），
+            # 让"没搜到"与"解析失败被跳过"可区分
+            errors.append((filepath, f"{type(e).__name__}: {e}"))
             if verbose:
                 print(f"  [警告] 解析失败: {filepath} - {e}")
             continue
@@ -137,5 +141,9 @@ def search_files(
     if verbose:
         print(f"\n搜索完成！耗时: {elapsed:.1f}s")
         print(f"扫描文件: {total_files}, 命中文件: {len(results)}")
+
+    # PY6：非 verbose 模式下失败不再完全静默，汇总提示一行（明细需 -v 查看）
+    if errors:
+        print(f"注意：{len(errors)} 个文件解析失败已跳过（使用 -v 查看明细）")
 
     return results

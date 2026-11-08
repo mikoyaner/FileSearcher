@@ -16,39 +16,37 @@ class DocxParser(BaseParser):
     """.docx 文件解析器"""
 
     def extract_text(self, filepath: str) -> str:
-        try:
-            from docx import Document
-            doc = Document(filepath)
-            text_parts = []
+        # PY6 契约变更：不再内部吞异常 —— 损坏/锁定文件抛出的异常直接上抛，
+        # 由调度器统一捕获计数汇总（见 base.py 契约说明）
+        from docx import Document
+        doc = Document(filepath)
+        text_parts = []
 
-            # 遍历正文段落（doc.paragraphs 仅含 body 直接子段落，
-            # 表格内的段落由 _collect_tables 单独收集）
-            for para in doc.paragraphs:
-                if para.text.strip():
-                    text_parts.append(para.text)
+        # 遍历正文段落（doc.paragraphs 仅含 body 直接子段落，
+        # 表格内的段落由 _collect_tables 单独收集）
+        for para in doc.paragraphs:
+            if para.text.strip():
+                text_parts.append(para.text)
 
-            # 遍历正文表格（含嵌套表格）
-            _collect_tables(doc.tables, text_parts)
+        # 遍历正文表格（含嵌套表格）
+        _collect_tables(doc.tables, text_parts)
 
-            # PY2 修复：遍历每个 section 的页眉/页脚及其首页/奇偶页变体。
-            # python-docx 中这些属性始终返回容器代理对象（未定义时内容为空），可安全遍历。
-            for section in doc.sections:
-                header_footer_containers = (
-                    section.header, section.first_page_header, section.even_page_header,
-                    section.footer, section.first_page_footer, section.even_page_footer,
-                )
-                for container in header_footer_containers:
-                    if container is None:
-                        continue
-                    for para in container.paragraphs:
-                        if para.text.strip():
-                            text_parts.append(para.text)
-                    _collect_tables(container.tables, text_parts)
+        # PY2 修复：遍历每个 section 的页眉/页脚及其首页/奇偶页变体。
+        # python-docx 中这些属性始终返回容器代理对象（未定义时内容为空），可安全遍历。
+        for section in doc.sections:
+            header_footer_containers = (
+                section.header, section.first_page_header, section.even_page_header,
+                section.footer, section.first_page_footer, section.even_page_footer,
+            )
+            for container in header_footer_containers:
+                if container is None:
+                    continue
+                for para in container.paragraphs:
+                    if para.text.strip():
+                        text_parts.append(para.text)
+                _collect_tables(container.tables, text_parts)
 
-            return '\n'.join(text_parts)
-        except Exception:
-            # 解析失败返回空字符串，由搜索器按"无可提取文本"跳过
-            return ''
+        return '\n'.join(text_parts)
 
 
 def _collect_tables(tables, text_parts):

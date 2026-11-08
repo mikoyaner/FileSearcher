@@ -69,8 +69,10 @@ class TestPptxParser:
 
         assert "预算关键词" in text
 
-    def test_corrupt_file_returns_empty(self, tmp_path):
+    def test_corrupt_file_raises_for_scheduler(self, tmp_path):
+        # PY6 契约回归：损坏文件不再静默返回空串，而是抛出异常由调度器计数
         path = tmp_path / "corrupt.pptx"
         path.write_bytes(b"PK\x03\x04 not a real pptx")
 
-        assert PptxParser().extract_text(str(path)) == ""
+        with pytest.raises(Exception):
+            PptxParser().extract_text(str(path))

@@ -58,9 +58,12 @@ class TestDocxParser:
 
         assert "预算关键词" in DocxParser().extract_text(str(path))
 
-    def test_corrupt_file_returns_empty(self, tmp_path):
-        # 解析失败返回空字符串，不抛异常
+    def test_corrupt_file_raises_for_scheduler(self, tmp_path):
+        # PY6 契约回归：损坏文件不再静默返回空串，而是抛出异常由调度器计数
+        import pytest
+
         path = tmp_path / "corrupt.docx"
         path.write_bytes(b"PK\x03\x04 not a real docx")
 
-        assert DocxParser().extract_text(str(path)) == ""
+        with pytest.raises(Exception):
+            DocxParser().extract_text(str(path))

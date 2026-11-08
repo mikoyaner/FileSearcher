@@ -73,3 +73,24 @@ class TestSearchFiles:
 
         assert len(results) == 1
         assert results[0]["file_path"].endswith("ok.txt")
+
+    def test_parse_failure_summary_printed_when_not_verbose(self, tmp_path, capsys):
+        # PY6 回归：解析失败在非 verbose 模式下不能完全静默 ——
+        # 必须汇总提示"N 个文件解析失败已跳过"
+        (tmp_path / "corrupt.docx").write_bytes(b"PK\x03\x04broken-not-docx")
+        (tmp_path / "ok.txt").write_text("含有关键词", encoding="utf-8")
+
+        results = search_files(str(tmp_path), "关键词")
+
+        assert len(results) == 1  # 正常文件不受影响
+        output = capsys.readouterr().out
+        assert "1 个文件解析失败已跳过" in output
+
+    def test_verbose_prints_failure_detail(self, tmp_path, capsys):
+        (tmp_path / "corrupt.docx").write_bytes(b"PK\x03\x04broken-not-docx")
+
+        search_files(str(tmp_path), "关键词", verbose=True)
+
+        output = capsys.readouterr().out
+        assert "[警告] 解析失败" in output
+        assert "corrupt.docx" in output

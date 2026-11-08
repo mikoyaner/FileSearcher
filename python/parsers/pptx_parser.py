@@ -19,26 +19,24 @@ class PptxParser(BaseParser):
     """.pptx 文件解析器"""
 
     def extract_text(self, filepath: str) -> str:
-        try:
-            from pptx import Presentation
-            prs = Presentation(filepath)
-            text_parts = []
+        # PY6 契约变更：不再内部吞异常 —— 损坏/锁定文件抛出的异常直接上抛，
+        # 由调度器统一捕获计数汇总（见 base.py 契约说明）
+        from pptx import Presentation
+        prs = Presentation(filepath)
+        text_parts = []
 
-            for slide in prs.slides:
-                # PY3 修复：深度优先展开形状集合，覆盖组合形状内部
-                for shape in _iter_shapes_recursive(slide.shapes):
-                    _collect_shape_text(shape, text_parts)
+        for slide in prs.slides:
+            # PY3 修复：深度优先展开形状集合，覆盖组合形状内部
+            for shape in _iter_shapes_recursive(slide.shapes):
+                _collect_shape_text(shape, text_parts)
 
-                # PY3 修复：读取备注页文本（先守卫，避免惰性创建）
-                if slide.has_notes_slide:
-                    notes_frame = slide.notes_slide.notes_text_frame
-                    if notes_frame is not None and notes_frame.text.strip():
-                        text_parts.append(notes_frame.text)
+            # PY3 修复：读取备注页文本（先守卫，避免惰性创建）
+            if slide.has_notes_slide:
+                notes_frame = slide.notes_slide.notes_text_frame
+                if notes_frame is not None and notes_frame.text.strip():
+                    text_parts.append(notes_frame.text)
 
-            return '\n'.join(text_parts)
-        except Exception:
-            # 解析失败返回空字符串，由搜索器按"无可提取文本"跳过
-            return ''
+        return '\n'.join(text_parts)
 
 
 def _iter_shapes_recursive(shapes):
