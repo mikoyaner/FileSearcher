@@ -64,3 +64,13 @@ scan_results*
 *.sln.DotSettings.user
 Thumbs.db
 .DS_Store
+
+# ================= Python =================
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+venv/
+.venv/
+*.egg-info/
+

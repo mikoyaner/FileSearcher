@@ -1,0 +1,10 @@
+# 核心依赖
+pandas>=2.0.0
+openpyxl>=3.1.0
+python-docx>=1.1.0
+python-pptx>=1.0.0
+chardet>=4.0.0
+tabulate>=0.9.0
+
+# 可选依赖（旧版 Office 解析）
+# textract>=1.6.5  # .doc/.xls/.ppt 解析 fallback

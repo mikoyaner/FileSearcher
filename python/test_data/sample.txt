@@ -1,0 +1,5 @@
+今年公司的年度预算已经正式批复。总预算为五千万元人民币，其中研发预算占比最大，达到两千万元。市场部的推广预算为八百万元，人力资源培训预算为三百万元。各部门需严格按照预算执行。
+
+中文编码测试：预算、报告、数据分析，这些关键词都应该能被正确检索。GBK编码也应该能正常读取。
+
+The annual budget for this year has been approved. The total budget is 50 million yuan, with R&D budget accounting for the largest portion at 20 million yuan.
